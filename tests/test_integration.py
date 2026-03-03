@@ -260,6 +260,25 @@ class TestFullPipeline(unittest.TestCase):
             opp = session.query(Opportunity).filter_by(contract_id=contract_id).first()
             self.assertEqual(opp.status, 'closed')
 
+    def test_get_statistics_duration_no_timezone_error(self):
+        """get_statistics should not raise a TypeError on naive/aware datetime subtraction."""
+        contract_id, _ = self._setup_contract_and_opportunity()
+
+        # Close it so there's a closed opportunity for statistics to compute duration on
+        collapsed_spread = {
+            'raw_spread': 0.005,
+            'fee_adjusted_spread': -0.085,
+            'kalshi_prob': 0.70,
+            'polymarket_prob': 0.71,
+        }
+        OpportunityTracker().update_open_opportunities({contract_id: collapsed_spread})
+
+        # Should not raise TypeError regardless of tz-naive SQLite datetimes
+        stats = OpportunityTracker().get_statistics()
+        self.assertEqual(stats['closed_opportunities'], 1)
+        self.assertGreaterEqual(stats['average_duration_seconds'], 0)
+        self.assertGreater(stats['average_peak_spread'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

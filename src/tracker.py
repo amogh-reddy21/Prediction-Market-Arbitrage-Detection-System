@@ -205,10 +205,17 @@ class OpportunityTracker:
             closed = session.query(Opportunity).filter_by(status='closed').all()
             
             if closed:
-                durations = [
-                    (opp.close_time - opp.open_time).total_seconds() 
-                    for opp in closed if opp.close_time
-                ]
+                durations = []
+                for opp in closed:
+                    if not opp.close_time:
+                        continue
+                    close_t, open_t = opp.close_time, opp.open_time
+                    # Normalise: if one side is naive, strip tz from the other
+                    if close_t.tzinfo is not None and open_t.tzinfo is None:
+                        close_t = close_t.replace(tzinfo=None)
+                    elif open_t.tzinfo is not None and close_t.tzinfo is None:
+                        open_t = open_t.replace(tzinfo=None)
+                    durations.append((close_t - open_t).total_seconds())
                 avg_duration = sum(durations) / len(durations) if durations else 0
                 avg_peak = sum(float(opp.peak_spread) for opp in closed) / len(closed)
             else:
