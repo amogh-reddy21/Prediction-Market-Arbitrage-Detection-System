@@ -10,7 +10,7 @@ SQLAlchemy==2.0.23
 gunicorn==21.2.0
 
 # Statistical/Mathematical
-scipy==1.11.4
+scipy==1.13.1
 numpy==1.26.2
 
 # String Matching
