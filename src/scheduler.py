@@ -1,7 +1,7 @@
 """Main scheduler for data collection and opportunity detection."""
 
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
@@ -33,7 +33,7 @@ def update_api_health(platform: str, success: bool, error_msg: str = None):
             health = APIHealth(platform=platform, status='healthy')
             session.add(health)
         
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         if success:
             health.last_successful_call = now
@@ -54,7 +54,7 @@ def update_api_health(platform: str, success: bool, error_msg: str = None):
 def collect_prices():
     """Main data collection job - runs every poll interval."""
     logger.info("=" * 60)
-    logger.info(f"Starting price collection cycle at {datetime.utcnow()}")
+    logger.info(f"Starting price collection cycle at {datetime.now(timezone.utc)}")
     
     # Fetch markets from both platforms
     try:
@@ -101,7 +101,7 @@ def collect_prices():
             if not kalshi_market or not poly_market:
                 continue
             
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # Store prices
             kalshi_price = Price(
@@ -155,7 +155,7 @@ def collect_prices():
                         'polymarket_bid': poly_market.get('yes_bid', 0),
                         'polymarket_ask': poly_market.get('yes_ask', 0),
                         'recommended_action': f"Buy on {'Kalshi' if kalshi_market['probability'] < poly_market['probability'] else 'Polymarket'}, sell on {'Polymarket' if kalshi_market['probability'] < poly_market['probability'] else 'Kalshi'}",
-                        'timestamp': datetime.utcnow()
+                        'timestamp': datetime.now(timezone.utc)
                     }
                     notifier.send_arbitrage_alert(opportunity_data)
                 except Exception as e:

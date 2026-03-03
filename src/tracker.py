@@ -1,7 +1,7 @@
 """Arbitrage opportunity tracker with edge decay analysis."""
 
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from loguru import logger
 
 from .config import config
@@ -37,14 +37,14 @@ class OpportunityTracker:
                 # Update existing opportunity if spread increased
                 if spread_data['raw_spread'] > float(existing.peak_spread):
                     existing.peak_spread = spread_data['raw_spread']
-                    existing.peak_time = datetime.utcnow()
+                    existing.peak_time = datetime.now(timezone.utc)
                 
                 existing.decay_observations += 1
                 session.commit()
                 return existing.id
             
             # Create new opportunity
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             opportunity = Opportunity(
                 contract_id=contract_id,
                 open_time=now,
@@ -93,14 +93,19 @@ class OpportunityTracker:
                 # Check if spread has closed below threshold
                 if spread_data['fee_adjusted_spread'] < config.MIN_SPREAD_THRESHOLD:
                     # Close the opportunity
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     opp.close_time = now
                     opp.status = 'closed'
                     opp.kalshi_prob_close = spread_data['kalshi_prob']
                     opp.polymarket_prob_close = spread_data['polymarket_prob']
-                    
-                    # Calculate duration
-                    duration = (now - opp.open_time).total_seconds()
+
+                    # Calculate duration — strip tz if open_time is naive (SQLite)
+                    open_time = opp.open_time
+                    if open_time.tzinfo is None:
+                        now_naive = now.replace(tzinfo=None)
+                        duration = (now_naive - open_time).total_seconds()
+                    else:
+                        duration = (now - open_time).total_seconds()
                     
                     logger.info(
                         f"✓ Opportunity closed: Contract {opp.contract_id}, "
@@ -112,7 +117,7 @@ class OpportunityTracker:
                     # Still open, check for new peak
                     if spread_data['raw_spread'] > float(opp.peak_spread):
                         opp.peak_spread = spread_data['raw_spread']
-                        opp.peak_time = datetime.utcnow()
+                        opp.peak_time = datetime.now(timezone.utc)
             
             session.commit()
             
@@ -127,7 +132,7 @@ class OpportunityTracker:
             max_age_hours: Maximum age before expiring (default 24 hours)
         """
         with get_db_session() as session:
-            cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
             
             stale_opps = session.query(Opportunity).filter(
                 Opportunity.status == 'open',
@@ -136,7 +141,7 @@ class OpportunityTracker:
             
             for opp in stale_opps:
                 opp.status = 'expired'
-                opp.close_time = datetime.utcnow()
+                opp.close_time = datetime.now(timezone.utc)
             
             session.commit()
             
@@ -154,37 +159,34 @@ class OpportunityTracker:
             List of {timestamp, spread} dictionaries
         """
         with get_db_session() as session:
-            opp = session.query(Opportunity).get(opportunity_id)
-            
+            opp = session.get(Opportunity, opportunity_id)
+
             if not opp:
                 return []
-            
+
             # Get price history during opportunity window
-            prices = session.query(Price).filter(
+            query = session.query(Price).filter(
                 Price.contract_id == opp.contract_id,
                 Price.timestamp >= opp.open_time
-            ).order_by(Price.timestamp).all()
-            
+            )
             if opp.close_time:
-                prices = [p for p in prices if p.timestamp <= opp.close_time]
-            
-            # Compute spread at each timestamp
+                query = query.filter(Price.timestamp <= opp.close_time)
+            prices = query.order_by(Price.timestamp).all()
+
+            # Group by timestamp using a dict — O(n) instead of O(n²)
+            by_ts: dict = {}
+            for p in prices:
+                by_ts.setdefault(p.timestamp, {})[p.platform] = p
+
             decay_curve = []
-            
-            # Group by timestamp
-            timestamps = sorted(set(p.timestamp for p in prices))
-            
-            for ts in timestamps:
-                kalshi_price = next((p for p in prices if p.timestamp == ts and p.platform == 'kalshi'), None)
-                poly_price = next((p for p in prices if p.timestamp == ts and p.platform == 'polymarket'), None)
-                
-                if kalshi_price and poly_price:
-                    spread = abs(float(poly_price.probability) - float(kalshi_price.probability))
-                    decay_curve.append({
-                        'timestamp': ts,
-                        'spread': spread
-                    })
-            
+            for ts in sorted(by_ts):
+                row = by_ts[ts]
+                if 'kalshi' in row and 'polymarket' in row:
+                    spread = abs(
+                        float(row['polymarket'].probability) - float(row['kalshi'].probability)
+                    )
+                    decay_curve.append({'timestamp': ts, 'spread': spread})
+
             return decay_curve
     
     def get_statistics(self) -> Dict:

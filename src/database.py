@@ -1,8 +1,7 @@
 """Database connection and session management."""
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 from contextlib import contextmanager
 from loguru import logger
 

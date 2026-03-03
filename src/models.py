@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models."""
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, DECIMAL, BigInteger, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, DECIMAL, BigInteger, ForeignKey, Index, CheckConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -47,8 +47,8 @@ class MatchedContract(Base):
 class Price(Base):
     """Time-series price observations."""
     __tablename__ = 'prices'
-    
-    id = Column(BigInteger, primary_key=True)
+
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True, autoincrement=True)
     contract_id = Column(Integer, ForeignKey('matched_contracts.id', ondelete='CASCADE'), nullable=False)
     platform = Column(Enum('kalshi', 'polymarket'), nullable=False)
     probability = Column(DECIMAL(6, 5), nullable=False)
@@ -57,15 +57,22 @@ class Price(Base):
     volume_24h = Column(DECIMAL(15, 2))
     timestamp = Column(DateTime, nullable=False)
     created_at = Column(DateTime, server_default=func.current_timestamp())
-    
+
+    __table_args__ = (
+        # Core query pattern: filter by contract + platform + time window
+        Index('ix_prices_contract_platform_ts', 'contract_id', 'platform', 'timestamp'),
+        # Probability must be a valid probability value
+        CheckConstraint('probability >= 0 AND probability <= 1', name='ck_prices_probability'),
+    )
+
     # Relationships
     contract = relationship("MatchedContract", back_populates="prices")
 
 class Opportunity(Base):
     """Arbitrage opportunities."""
     __tablename__ = 'opportunities'
-    
-    id = Column(BigInteger, primary_key=True)
+
+    id = Column(BigInteger().with_variant(Integer, 'sqlite'), primary_key=True, autoincrement=True)
     contract_id = Column(Integer, ForeignKey('matched_contracts.id', ondelete='CASCADE'), nullable=False)
     open_time = Column(DateTime, nullable=False)
     close_time = Column(DateTime)
@@ -81,7 +88,12 @@ class Opportunity(Base):
     status = Column(Enum('open', 'closed', 'expired'), default='open')
     created_at = Column(DateTime, server_default=func.current_timestamp())
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
-    
+
+    __table_args__ = (
+        # Core query pattern: open opportunities per contract
+        Index('ix_opportunities_contract_status', 'contract_id', 'status'),
+    )
+
     # Relationships
     contract = relationship("MatchedContract", back_populates="opportunities")
 

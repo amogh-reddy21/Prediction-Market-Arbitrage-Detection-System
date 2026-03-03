@@ -1,9 +1,10 @@
 """Contract matching engine using fuzzy string matching."""
 
+import re
 from rapidfuzz import fuzz, process
 from typing import List, Dict, Optional, Tuple
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import config
 from .database import get_db_session
@@ -24,30 +25,28 @@ class ContractMatcher:
     def normalize_title(self, title: str) -> str:
         """
         Normalize contract title for better matching.
-        
+
         Args:
             title: Raw contract title
-            
+
         Returns:
             Normalized title
         """
-        # Convert to lowercase
         title = title.lower()
-        
-        # Remove common prefixes/suffixes
-        removals = [
-            'will ', 'does ', 'is ', 'are ',
-            '?', '!', '.', ',',
-            ' - yes', ' - no',
-            'yes or no:', 'true or false:'
-        ]
-        
-        for removal in removals:
-            title = title.replace(removal, '')
-        
+
+        # Remove punctuation
+        title = re.sub(r'[?!.,]', '', title)
+
+        # Remove stop words as whole words only (not substrings)
+        stop_words = r'\b(will|does|is|are|yes or no|true or false)\b'
+        title = re.sub(stop_words, '', title)
+
+        # Remove trailing platform markers
+        title = re.sub(r'\s*-\s*(yes|no)\s*$', '', title)
+
         # Collapse whitespace
         title = ' '.join(title.split())
-        
+
         return title.strip()
     
     def find_matches(
@@ -123,7 +122,7 @@ class ContractMatcher:
                     # Update score if improved
                     if score > existing.match_score:
                         existing.match_score = score
-                        existing.updated_at = datetime.utcnow()
+                        existing.updated_at = datetime.now(timezone.utc)
                     continue
                 
                 # Create new match
@@ -167,7 +166,7 @@ class ContractMatcher:
             verified: Verification status
         """
         with get_db_session() as session:
-            match = session.query(MatchedContract).get(contract_id)
+            match = session.get(MatchedContract, contract_id)
             if match:
                 match.verified = verified
                 session.commit()
@@ -181,7 +180,7 @@ class ContractMatcher:
             contract_id: MatchedContract ID
         """
         with get_db_session() as session:
-            match = session.query(MatchedContract).get(contract_id)
+            match = session.get(MatchedContract, contract_id)
             if match:
                 match.active = False
                 session.commit()

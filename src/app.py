@@ -2,7 +2,7 @@
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timezone
 from loguru import logger
 
 from .config import config
@@ -26,7 +26,7 @@ def health_check():
         
         return jsonify({
             'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'platforms': [
                 {
                     'platform': h.platform,
@@ -50,7 +50,7 @@ def get_live_opportunities():
         for opp in open_opps:
             contract = session.query(MatchedContract).get(opp.contract_id)
             
-            duration_seconds = (datetime.utcnow() - opp.open_time).total_seconds()
+            duration_seconds = (datetime.now(timezone.utc) - opp.open_time).total_seconds()
             
             results.append({
                 'id': opp.id,
@@ -71,7 +71,7 @@ def get_live_opportunities():
         return jsonify({
             'opportunities': results,
             'count': len(results),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
 
 @app.route('/api/history', methods=['GET'])
@@ -127,7 +127,7 @@ def get_statistics():
         'average_duration_seconds': stats['average_duration_seconds'],
         'average_peak_spread': stats['average_peak_spread'],
         'edge_half_life_seconds': stats['edge_half_life'],
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
 @app.route('/api/contracts', methods=['GET'])

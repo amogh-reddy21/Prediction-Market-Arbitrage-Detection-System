@@ -2,7 +2,7 @@
 
 import httpx
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -107,7 +107,7 @@ class PolymarketClient:
                         'probability': probability,
                         'volume_24h': market.get('volume24hr', 0),
                         'close_time': market.get('endDate'),
-                        'timestamp': datetime.utcnow()
+                        'timestamp': datetime.now(timezone.utc)
                     })
                 
                 logger.info(f"✓ Fetched {len(normalized)} Polymarket markets")
@@ -188,7 +188,7 @@ class PolymarketClient:
                     'yes_ask': orderbook['yes_ask'],
                     'probability': orderbook['probability'],
                     'volume_24h': market.get('volume_24h', 0),
-                    'timestamp': datetime.utcnow()
+                    'timestamp': datetime.now(timezone.utc)
                 }
                 
         except Exception as e:

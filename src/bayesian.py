@@ -3,7 +3,7 @@
 import numpy as np
 from scipy.stats import beta
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from loguru import logger
 
 from .config import config
@@ -56,12 +56,12 @@ class BayesianEngine:
                     alpha=1.0,
                     beta=1.0,
                     observations_count=0,
-                    last_updated=datetime.utcnow()
+                    last_updated=datetime.now(timezone.utc)
                 )
                 session.add(state)
             
             # Get recent observations from rolling window
-            cutoff_time = datetime.utcnow() - timedelta(
+            cutoff_time = datetime.now(timezone.utc) - timedelta(
                 seconds=config.POLL_INTERVAL_SECONDS * self.window_size
             )
             
@@ -102,7 +102,7 @@ class BayesianEngine:
             state.alpha = float(alpha)
             state.beta = float(beta_param)
             state.observations_count = len(observations)
-            state.last_updated = datetime.utcnow()
+            state.last_updated = datetime.now(timezone.utc)
             
             session.commit()
             
@@ -211,13 +211,12 @@ class BayesianEngine:
         
         # Fee-adjusted spread
         # To profit, you need spread > (fee_kalshi + fee_polymarket)
-        # Buy low on one platform, sell high on other
         total_fees = config.FEE_KALSHI + config.FEE_POLYMARKET
         fee_adjusted_spread = raw_spread - total_fees
-        
+
         return {
             'raw_spread': raw_spread,
-            'fee_adjusted_spread': max(fee_adjusted_spread, 0.0),
+            'fee_adjusted_spread': fee_adjusted_spread,   # Preserve sign; callers use is_opportunity() to threshold
             'kalshi_prob': kalshi_smoothed,
             'polymarket_prob': poly_smoothed,
             'total_fees': total_fees

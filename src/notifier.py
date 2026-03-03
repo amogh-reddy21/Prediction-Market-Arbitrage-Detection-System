@@ -3,7 +3,7 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List
 from loguru import logger
 
@@ -51,7 +51,7 @@ class EmailNotifier:
             msg['Subject'] = subject
             msg['From'] = self.email_from
             msg['To'] = self.email_to
-            msg['Date'] = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S +0000')
+            msg['Date'] = datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S +0000')
             
             # Attach both plain text and HTML versions
             msg.attach(MIMEText(text_body, 'plain'))
@@ -99,7 +99,7 @@ Ask: ${opp.get('polymarket_ask', 0):.4f}
 -----------
 {opp.get('recommended_action', 'Review opportunity and execute if profitable')}
 
-🕐 Detected: {opp.get('timestamp', datetime.utcnow())}
+🕐 Detected: {opp.get('timestamp', datetime.now(timezone.utc))}
 
 ---
 Prediction Market Arbitrage System
@@ -168,7 +168,7 @@ Prediction Market Arbitrage System
         </div>
         
         <div class="footer">
-            🕐 Detected: {opp.get('timestamp', datetime.utcnow())}<br>
+            🕐 Detected: {opp.get('timestamp', datetime.now(timezone.utc))}<br>
             Prediction Market Arbitrage System
         </div>
     </div>
@@ -195,7 +195,7 @@ Prediction Market Arbitrage System
             
             text_body = f"""
 DAILY ARBITRAGE SUMMARY
-{datetime.utcnow().strftime('%Y-%m-%d')}
+{datetime.now(timezone.utc).strftime('%Y-%m-%d')}
 
 Total Opportunities: {len(opportunities)}
 Total Spread: {stats.get('total_spread', 0):.2f}%
