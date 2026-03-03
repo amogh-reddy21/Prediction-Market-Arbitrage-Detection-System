@@ -1,99 +1,88 @@
-# Prediction Market Arbitrage System
+# Prediction Market Arbitrage Detection System
 
-A real-time arbitrage monitoring system for prediction markets across Kalshi and Polymarket.
+Monitors pricing discrepancies on identical events across Kalshi and Polymarket. Uses Bayesian probability smoothing to reduce noise, tracks edge decay over time, and flags exploitable opportunities after fee adjustment.
 
-## Core Concept
-Monitors pricing discrepancies on identical events across platforms. Uses Bayesian probability smoothing to reduce noise, tracks edge decay over time, and flags exploitable opportunities after fee adjustment.
+**Stack:** Python, Flask, SQLAlchemy, PostgreSQL, React, APScheduler, Gunicorn
 
-## Architecture
+## How It Works
 
-### Layer 1: API Wrappers
-- **Kalshi Wrapper**: REST API integration for market data
-- **Polymarket Wrapper**: CLOB API integration
-- **Contract Matcher**: Fuzzy matching (rapidfuzz) to pair identical events across platforms
+1. **Data Collection** — Polls Kalshi and Polymarket every 60 seconds via their REST APIs
+2. **Contract Matching** — Pairs identical events across platforms using fuzzy string matching (RapidFuzz, 85% threshold)
+3. **Signal Engine** — Applies Bayesian Beta-distribution smoothing to raw probabilities, computes fee-adjusted spreads (Kalshi ~7%, Polymarket ~2%)
+4. **Opportunity Tracking** — Logs the full lifecycle of each arbitrage opportunity, including spread decay and peak edge
+5. **Dashboard** — Flask REST API + React frontend for real-time monitoring of open/closed opportunities
 
-### Layer 2: Signal Engine
-- Bayesian probability updates (Beta distribution priors)
-- Fee-adjusted spread calculation (Kalshi ~7%, Polymarket ~2%)
-- Rolling window smoothing (last 10 observations)
-
-### Layer 3: Edge Decay Tracker
-- Logs opportunity lifecycle from detection to close
-- Tracks spread persistence and decay curves
-- Empirical analysis of market microstructure
-
-### Layer 4: Storage (MySQL)
-- `matched_contracts`: Verified contract pairs across platforms
-- `prices`: Time-series polling data with probabilities
-- `opportunities`: Flagged arbitrage events with decay metrics
-
-### Layer 5: Dashboard
-- Flask REST API backend
-- React frontend with live updates
-- Real-time opportunity monitoring and historical analysis
+## Backtest Results
+- **72,000+** historical observations analyzed
+- **151** arbitrage opportunities identified over 30 days
+- **4.72%** monthly ROI | **59%** projected annualized | **1.26** Sharpe ratio
 
 ## Setup
 
 ### Prerequisites
-```bash
-Python 3.10+
-MySQL 8.0+
-Node.js 18+
-```
-
-### Environment Variables
-Create `.env` file:
-```
-KALSHI_API_KEY=your_key_here
-KALSHI_API_SECRET=your_secret_here
-POLYMARKET_API_KEY=your_key_here
-MYSQL_HOST=localhost
-MYSQL_USER=root
-MYSQL_PASSWORD=your_password
-MYSQL_DATABASE=arbitrage_db
-```
+- Python 3.12+
+- PostgreSQL
+- Node.js 18+
 
 ### Installation
 ```bash
-# Backend
+# Clone and install dependencies
 pip install -r requirements.txt
 
-# Frontend
-cd frontend
-npm install
+# Copy and fill in environment variables
+cp .env.example .env
 
-# Database
-mysql -u root -p < schema.sql
+# Create database tables
+python -c "from src.database import Base, engine; Base.metadata.create_all(engine)"
+
+# Install frontend dependencies
+cd frontend && npm install
+```
+
+### Environment Variables
+See `.env.example` for all required variables. Key ones:
+```
+DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/arbitrage_db
+KALSHI_API_KEY=your_key_here
+POLYMARKET_API_KEY=your_key_here
 ```
 
 ### Run
 ```bash
 # Start data collector
-python src/scheduler.py
+python -m src.scheduler
 
-# Start API server
-python src/app.py
+# Start API server (dev)
+python -m src.app
 
-# Start frontend (separate terminal)
+# Start API server (production)
+gunicorn "src.app:app"
+
+# Start frontend
 cd frontend && npm start
 ```
 
-## Project Timeline
-- **Day 1**: API wrappers + authentication testing
-- **Day 2**: Contract matching + MySQL schema
-- **Day 3**: Signal engine + Bayesian smoothing + scheduler
-- **Day 4**: Flask API + React dashboard
-- **Day 5**: Testing, debugging, documentation
+## Project Structure
+```
+src/
+├── scheduler.py       # Data collection loop (APScheduler)
+├── app.py             # Flask REST API
+├── kalshi_client.py   # Kalshi API wrapper
+├── polymarket_client.py # Polymarket API wrapper
+├── matcher.py         # Fuzzy contract matching
+├── bayesian.py        # Bayesian probability smoothing
+├── tracker.py         # Opportunity lifecycle tracking
+├── models.py          # SQLAlchemy ORM models
+└── database.py        # DB connection and session management
+frontend/
+└── src/components/    # React dashboard components
+tests/                 # 52 unit tests
+```
 
-## Key Metrics
-- **Fee-Adjusted Edge**: Spread after platform fees
-- **Edge Half-Life**: Average time for spread to decay 50%
-- **Opportunity Frequency**: Flagged events per day
-- **False Positive Rate**: Spreads that close before execution
-
-## Why This is a Strong SWE Project
-1. **Real-world data**: Live API integration with financial platforms
-2. **Statistical modeling**: Bayesian inference, not just raw arithmetic
-3. **System design**: Scheduler, database, API, frontend working together
-4. **Market microstructure**: Empirical analysis of price discovery
-5. **Production-ready**: Error handling, logging, monitoring
+## API Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | API and platform health status |
+| GET | `/api/live` | Currently open opportunities |
+| GET | `/api/history` | Closed opportunity history |
+| GET | `/api/stats` | Aggregate performance metrics |
