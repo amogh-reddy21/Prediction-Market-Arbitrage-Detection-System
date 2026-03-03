@@ -1,0 +1,39 @@
+# API and HTTP
+requests==2.31.0
+httpx==0.25.2
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# Production Server
+gunicorn==21.2.0
+
+# Statistical/Mathematical
+scipy==1.11.4
+numpy==1.26.2
+
+# String Matching
+rapidfuzz==3.5.2
+
+# Scheduling
+APScheduler==3.10.4
+
+# Web Framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Logging
+loguru==0.7.2
+
+# Date/Time
+python-dateutil==2.8.2
+
+# Data Validation
+pydantic==2.5.2
+
+# Retry Logic
+tenacity==8.2.3
