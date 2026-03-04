@@ -224,6 +224,15 @@ def main():
 
     logger.info("🚀 Starting Prediction Market Arbitrage System")
 
+    # Verify DATABASE_URL is actually set (not the localhost fallback)
+    db_url = config.DATABASE_URL
+    if 'localhost' in db_url or '127.0.0.1' in db_url:
+        logger.critical(
+            "DATABASE_URL points to localhost — this will fail on Railway. "
+            "Go to the Railway dashboard → this service → Variables → "
+            "add a reference to your PostgreSQL DATABASE_URL."
+        )
+
     # Initialize all components here — not at module import time
     kalshi = KalshiClient(base_url=config.KALSHI_BASE_URL)
     polymarket = PolymarketClient()
@@ -232,9 +241,19 @@ def main():
     tracker = OpportunityTracker()
     notifier = EmailNotifier()
 
-    # Test database connection
-    if not test_connection():
-        logger.error("Cannot connect to database. Exiting.")
+    # Test database connection — retry for up to 60s to allow Railway's
+    # PostgreSQL container time to become ready before we give up.
+    import time
+    for attempt in range(1, 7):
+        if test_connection():
+            break
+        logger.warning(f"DB not ready (attempt {attempt}/6) — retrying in 10s...")
+        time.sleep(10)
+    else:
+        logger.critical(
+            "Could not connect to the database after 60s. "
+            "Make sure DATABASE_URL is set in Railway Variables."
+        )
         sys.exit(1)
 
     # Run initial matching
