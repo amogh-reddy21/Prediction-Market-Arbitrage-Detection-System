@@ -1,95 +1,99 @@
 -- Prediction Market Arbitrage Database Schema
-
-DROP DATABASE IF EXISTS arbitrage_db;
-CREATE DATABASE arbitrage_db;
-USE arbitrage_db;
+-- PostgreSQL
 
 -- Matched contract pairs across platforms
 CREATE TABLE matched_contracts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    kalshi_id VARCHAR(255) NOT NULL,
+    id          SERIAL PRIMARY KEY,
+    kalshi_id   VARCHAR(255) NOT NULL,
     polymarket_id VARCHAR(255) NOT NULL,
     event_title VARCHAR(500) NOT NULL,
-    match_score FLOAT NOT NULL,  -- Fuzzy match similarity (0-100)
-    verified BOOLEAN DEFAULT FALSE,  -- Manual verification flag
-    active BOOLEAN DEFAULT TRUE,  -- Whether we're still monitoring this pair
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_pair (kalshi_id, polymarket_id),
-    INDEX idx_active (active),
-    INDEX idx_verified (verified)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    match_score FLOAT NOT NULL,
+    verified    BOOLEAN NOT NULL DEFAULT FALSE,
+    active      BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_matched_contracts_pair UNIQUE (kalshi_id, polymarket_id)
+);
+
+CREATE INDEX idx_matched_contracts_active   ON matched_contracts (active);
+CREATE INDEX idx_matched_contracts_verified ON matched_contracts (verified);
 
 -- Time-series price observations
+CREATE TYPE platform_enum AS ENUM ('kalshi', 'polymarket');
+
 CREATE TABLE prices (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    contract_id INT NOT NULL,
-    platform ENUM('kalshi', 'polymarket') NOT NULL,
-    probability DECIMAL(6,5) NOT NULL,  -- 0.00000 to 1.00000
-    bid_price DECIMAL(6,5),
-    ask_price DECIMAL(6,5),
-    volume_24h DECIMAL(15,2),  -- 24-hour trading volume in USD
-    timestamp TIMESTAMP(3) NOT NULL,  -- Millisecond precision
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (contract_id) REFERENCES matched_contracts(id) ON DELETE CASCADE,
-    INDEX idx_contract_time (contract_id, timestamp),
-    INDEX idx_platform_time (platform, timestamp),
-    INDEX idx_timestamp (timestamp)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id          BIGSERIAL PRIMARY KEY,
+    contract_id INTEGER NOT NULL REFERENCES matched_contracts (id) ON DELETE CASCADE,
+    platform    platform_enum NOT NULL,
+    probability NUMERIC(6,5) NOT NULL CHECK (probability BETWEEN 0 AND 1),
+    bid_price   NUMERIC(6,5),
+    ask_price   NUMERIC(6,5),
+    volume_24h  NUMERIC(15,2),
+    timestamp   TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_prices_contract_platform_ts UNIQUE (contract_id, platform, timestamp)
+);
+
+CREATE INDEX idx_prices_contract_time  ON prices (contract_id, timestamp);
+CREATE INDEX idx_prices_platform_time  ON prices (platform, timestamp);
+CREATE INDEX idx_prices_timestamp      ON prices (timestamp);
 
 -- Arbitrage opportunities
+CREATE TYPE opportunity_status AS ENUM ('open', 'closed', 'expired');
+
 CREATE TABLE opportunities (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    contract_id INT NOT NULL,
-    open_time TIMESTAMP(3) NOT NULL,
-    close_time TIMESTAMP(3),
-    raw_spread DECIMAL(6,5) NOT NULL,  -- Raw probability difference
-    fee_adjusted_spread DECIMAL(6,5) NOT NULL,  -- After platform fees
-    kalshi_prob_open DECIMAL(6,5) NOT NULL,
-    polymarket_prob_open DECIMAL(6,5) NOT NULL,
-    kalshi_prob_close DECIMAL(6,5),
-    polymarket_prob_close DECIMAL(6,5),
-    peak_spread DECIMAL(6,5) NOT NULL,
-    peak_time TIMESTAMP(3),
-    decay_observations INT DEFAULT 0,  -- Number of price updates while open
-    status ENUM('open', 'closed', 'expired') DEFAULT 'open',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (contract_id) REFERENCES matched_contracts(id) ON DELETE CASCADE,
-    INDEX idx_status (status),
-    INDEX idx_open_time (open_time),
-    INDEX idx_contract_status (contract_id, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id                      BIGSERIAL PRIMARY KEY,
+    contract_id             INTEGER NOT NULL REFERENCES matched_contracts (id) ON DELETE CASCADE,
+    open_time               TIMESTAMPTZ NOT NULL,
+    close_time              TIMESTAMPTZ,
+    raw_spread              NUMERIC(6,5) NOT NULL,
+    fee_adjusted_spread     NUMERIC(6,5) NOT NULL,
+    kalshi_prob_open        NUMERIC(6,5) NOT NULL,
+    polymarket_prob_open    NUMERIC(6,5) NOT NULL,
+    kalshi_prob_close       NUMERIC(6,5),
+    polymarket_prob_close   NUMERIC(6,5),
+    peak_spread             NUMERIC(6,5) NOT NULL,
+    peak_time               TIMESTAMPTZ,
+    decay_observations      INTEGER NOT NULL DEFAULT 0,
+    status                  opportunity_status NOT NULL DEFAULT 'open',
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_opportunities_status           ON opportunities (status);
+CREATE INDEX idx_opportunities_open_time        ON opportunities (open_time);
+CREATE INDEX idx_opportunities_contract_status  ON opportunities (contract_id, status);
 
 -- Bayesian posterior parameters (rolling window state)
 CREATE TABLE bayesian_state (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    contract_id INT NOT NULL,
-    platform ENUM('kalshi', 'polymarket') NOT NULL,
-    alpha DECIMAL(10,4) NOT NULL,  -- Beta distribution alpha parameter
-    beta DECIMAL(10,4) NOT NULL,   -- Beta distribution beta parameter
-    observations_count INT NOT NULL,  -- Number of observations in rolling window
-    last_updated TIMESTAMP(3) NOT NULL,
-    UNIQUE KEY unique_contract_platform (contract_id, platform),
-    FOREIGN KEY (contract_id) REFERENCES matched_contracts(id) ON DELETE CASCADE,
-    INDEX idx_last_updated (last_updated)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id                  SERIAL PRIMARY KEY,
+    contract_id         INTEGER NOT NULL REFERENCES matched_contracts (id) ON DELETE CASCADE,
+    platform            platform_enum NOT NULL,
+    alpha               NUMERIC(10,4) NOT NULL,
+    beta                NUMERIC(10,4) NOT NULL,
+    observations_count  INTEGER NOT NULL,
+    last_updated        TIMESTAMPTZ NOT NULL,
+    CONSTRAINT uq_bayesian_state_contract_platform UNIQUE (contract_id, platform)
+);
 
--- Platform API status and monitoring
+CREATE INDEX idx_bayesian_state_last_updated ON bayesian_state (last_updated);
+
+-- Platform API health
+CREATE TYPE health_status AS ENUM ('healthy', 'degraded', 'down');
+
 CREATE TABLE api_health (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    platform ENUM('kalshi', 'polymarket') NOT NULL,
-    status ENUM('healthy', 'degraded', 'down') NOT NULL,
-    last_successful_call TIMESTAMP(3),
-    last_error TIMESTAMP(3),
-    error_message TEXT,
-    consecutive_failures INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_platform (platform)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id                    SERIAL PRIMARY KEY,
+    platform              platform_enum NOT NULL,
+    status                health_status NOT NULL,
+    last_successful_call  TIMESTAMPTZ,
+    last_error            TIMESTAMPTZ,
+    error_message         TEXT,
+    consecutive_failures  INTEGER NOT NULL DEFAULT 0,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_api_health_platform UNIQUE (platform)
+);
 
--- Initialize API health monitoring
-INSERT INTO api_health (platform, status) VALUES 
-    ('kalshi', 'healthy'),
-    ('polymarket', 'healthy');
+INSERT INTO api_health (platform, status) VALUES
+    ('kalshi',      'healthy'),
+    ('polymarket',  'healthy');
