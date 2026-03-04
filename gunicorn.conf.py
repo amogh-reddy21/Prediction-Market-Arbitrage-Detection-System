@@ -25,5 +25,21 @@ proc_name = "arbitrage-api"
 
 def on_starting(server):
     """Initialise DB tables before the first worker starts."""
-    from src.database import init_db
-    init_db()
+    import os
+    db_url = os.getenv('DATABASE_URL', 'NOT SET')
+    # Mask password for logging
+    if '@' in db_url:
+        safe_url = db_url.split('@')[1]
+    else:
+        safe_url = db_url
+    print(f"[gunicorn] DATABASE_URL host: {safe_url}", flush=True)
+
+    if db_url == 'NOT SET' or 'localhost' in db_url or '127.0.0.1' in db_url:
+        print("[gunicorn] WARNING: DATABASE_URL is not set or points to localhost. Skipping init_db.", flush=True)
+        return
+
+    try:
+        from src.database import init_db
+        init_db()
+    except Exception as e:
+        print(f"[gunicorn] WARNING: init_db failed: {e}", flush=True)
