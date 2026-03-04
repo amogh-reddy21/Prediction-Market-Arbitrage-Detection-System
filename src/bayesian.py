@@ -187,28 +187,49 @@ class BayesianEngine:
         Returns:
             Dictionary with raw_spread, fee_adjusted_spread, and probabilities
         """
+        kalshi_observations = 0
+        poly_observations = 0
+
         if use_bayesian:
             # Update and get smoothed probabilities
             kalshi_smoothed = self.update_posterior(contract_id, 'kalshi', kalshi_prob)
             poly_smoothed = self.update_posterior(contract_id, 'polymarket', polymarket_prob)
+
+            # Get observation counts to compute confidence
+            with get_db_session() as session:
+                k_state = session.query(BayesianState).filter_by(
+                    contract_id=contract_id, platform='kalshi'
+                ).first()
+                p_state = session.query(BayesianState).filter_by(
+                    contract_id=contract_id, platform='polymarket'
+                ).first()
+                kalshi_observations = k_state.observations_count if k_state else 0
+                poly_observations = p_state.observations_count if p_state else 0
         else:
             kalshi_smoothed = kalshi_prob
             poly_smoothed = polymarket_prob
-        
+
         # Raw spread (absolute difference)
         raw_spread = abs(poly_smoothed - kalshi_smoothed)
-        
+
         # Fee-adjusted spread
         # To profit, you need spread > (fee_kalshi + fee_polymarket)
         total_fees = config.FEE_KALSHI + config.FEE_POLYMARKET
         fee_adjusted_spread = raw_spread - total_fees
 
+        # Confidence: ramps from 0 → 1 as observations accumulate up to window_size.
+        # Requires at least 5 observations on each platform before any confidence > 0.
+        min_obs = min(kalshi_observations, poly_observations)
+        confidence = min(1.0, max(0.0, (min_obs - 5) / max(self.window_size - 5, 1)))
+
         return {
             'raw_spread': raw_spread,
-            'fee_adjusted_spread': fee_adjusted_spread,   # Preserve sign; callers use is_opportunity() to threshold
+            'fee_adjusted_spread': fee_adjusted_spread,
             'kalshi_prob': kalshi_smoothed,
             'polymarket_prob': poly_smoothed,
-            'total_fees': total_fees
+            'total_fees': total_fees,
+            'confidence': confidence,
+            'observations': min_obs,
         }
     
     def is_opportunity(self, spread_data: Dict[str, float]) -> bool:

@@ -66,7 +66,7 @@ class Config:
     @property
     def MIN_SPREAD_THRESHOLD(self):  return float(os.getenv('MIN_SPREAD_THRESHOLD', 0.015))
     @property
-    def FUZZY_MATCH_THRESHOLD(self): return float(os.getenv('FUZZY_MATCH_THRESHOLD', 85.0))
+    def FUZZY_MATCH_THRESHOLD(self): return float(os.getenv('FUZZY_MATCH_THRESHOLD', 90.0))
     @property
     def BAYESIAN_WINDOW_SIZE(self):  return int(os.getenv('BAYESIAN_WINDOW_SIZE', 10))
     @property

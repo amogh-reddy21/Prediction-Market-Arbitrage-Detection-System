@@ -76,7 +76,7 @@ class ContractMatcher:
         for kalshi_market in kalshi_markets:
             # Kalshi uses 'title', Polymarket uses 'question' or 'title'
             kalshi_title = self.normalize_title(kalshi_market.get('title', ''))
-            
+
             # Find best match using token_sort_ratio (handles word order differences)
             result = process.extractOne(
                 kalshi_title,
@@ -84,11 +84,24 @@ class ContractMatcher:
                 scorer=fuzz.token_sort_ratio,
                 score_cutoff=self.threshold
             )
-            
+
             if result:
                 matched_title, score, _ = result
+
+                # Secondary check: partial_ratio must also be strong.
+                # This filters out cases where token_sort_ratio is inflated by
+                # shared common words (e.g. team names) but the contracts are
+                # actually about different events.
+                partial_score = fuzz.partial_ratio(kalshi_title, matched_title)
+                if partial_score < self.threshold:
+                    logger.debug(
+                        f"Rejected match (token_sort={score:.1f}, partial={partial_score:.1f}): "
+                        f"'{kalshi_market.get('title', '')[:50]}'"
+                    )
+                    continue
+
                 poly_market = poly_dict[matched_title]
-                
+
                 matches.append((kalshi_market, poly_market, score))
                 
                 logger.debug(

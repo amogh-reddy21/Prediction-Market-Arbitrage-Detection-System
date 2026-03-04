@@ -141,7 +141,19 @@ def collect_prices():
             # Check if this is a new opportunity
             if bayesian.is_opportunity(spread_data):
                 tracker.flag_opportunity(contract.id, spread_data)
-                
+
+                # Require meaningful confidence before emailing.
+                # confidence ramps 0→1 after 5+ observations per platform.
+                # Below 30% = not enough data → skip email.
+                confidence = spread_data.get('confidence', 0)
+                observations = spread_data.get('observations', 0)
+                if confidence < 0.30:
+                    logger.info(
+                        f"Skipping email (confidence={confidence*100:.1f}%, "
+                        f"observations={observations}) — need ≥30% confidence"
+                    )
+                    continue
+
                 # Send email notification for new opportunities
                 try:
                     opportunity_data = {
