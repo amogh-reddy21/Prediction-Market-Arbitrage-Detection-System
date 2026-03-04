@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-Historical backtesting module to generate metrics from past data.
+Monte Carlo simulation module for validating the arbitrage detection algorithm.
 
-This simulates the arbitrage detection algorithm on historical market data
-to demonstrate what the system WOULD have found in real markets.
+NOTE ON METHODOLOGY
+-------------------
+This module uses *synthetically generated* market data, not live historical API
+data.  Real-market backtesting would require collecting a persistent price feed
+over time (see src/scheduler.py) and then replaying the stored `prices` table.
+
+The simulation below is intended to:
+  1. Validate that the detection logic fires correctly under known conditions.
+  2. Produce order-of-magnitude performance estimates under realistic assumptions
+     about market volatility and arbitrage frequency.
+  3. Stress-test edge cases (e.g., rapid spread collapse, zero-volume markets).
+
+All metrics produced here are *simulated* and should be reported as such.
 """
 
 import logging
@@ -22,7 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 class HistoricalBacktest:
-    """Backtest arbitrage detection on historical/simulated data."""
+    """
+    Monte Carlo simulation of the arbitrage detection pipeline.
+
+    Uses synthetically generated price paths — NOT live API data.
+    Label any metrics produced here as 'simulated' in external reports.
+    """
     
     def __init__(self):
         self.bayesian = BayesianEngine()
@@ -31,22 +47,22 @@ class HistoricalBacktest:
         self.matched_pairs = 0
         self.bayesian_cache = {}  # Simple cache for demo
         
-    def generate_synthetic_historical_data(self, days: int = 30) -> List[Dict]:
+    def generate_simulated_market_data(self, days: int = 30) -> List[Dict]:
         """
-        Generate realistic synthetic market data for backtesting.
-        
-        This simulates what REAL market data would look like based on:
-        - Actual market volatility patterns
-        - Real spread distributions observed in prediction markets
-        - Realistic price movements
-        
+        Generate synthetic price paths for simulation.
+
+        Prices follow a correlated random walk with occasional divergence events
+        (modelling real-world latency arbitrage and temporary market disagreements).
+        Arbitrage events are injected at a 5 % base rate to produce a realistic
+        opportunity frequency.
+
         Args:
-            days: Number of days of historical data to generate
-            
+            days: Length of the simulation window in days
+
         Returns:
             List of synthetic price observations
         """
-        logger.info(f"Generating {days} days of synthetic historical data...")
+        logger.info(f"Generating {days} days of synthetic simulation data...")
         
         # Simulate 50 contract pairs across platforms
         contract_pairs = []
@@ -192,9 +208,9 @@ class HistoricalBacktest:
         return results
     
     def print_results(self, results: Dict):
-        """Print backtest results in a resume-ready format."""
+        """Print simulation results clearly labelled as synthetic."""
         print("\n" + "=" * 80)
-        print("📊 HISTORICAL BACKTEST RESULTS - RESUME METRICS")
+        print("📊 MONTE CARLO SIMULATION RESULTS  (synthetic data — not live API history)")
         print("=" * 80)
         
         print(f"\n🔍 DATA ANALYZED:")
@@ -250,11 +266,11 @@ class HistoricalBacktest:
 
 
 def run_full_backtest(days: int = 30):
-    """Run complete backtest and display results."""
+    """Run complete simulation and display results."""
     backtest = HistoricalBacktest()
     
-    # Generate synthetic historical data
-    historical_data = backtest.generate_synthetic_historical_data(days=days)
+    # Generate synthetic simulation data
+    historical_data = backtest.generate_simulated_market_data(days=days)
     
     # Run backtest
     results = backtest.run_backtest(historical_data)
@@ -267,9 +283,9 @@ def run_full_backtest(days: int = 30):
 
 if __name__ == '__main__':
     print("=" * 80)
-    print("🚀 STARTING HISTORICAL BACKTEST")
+    print("🚀 STARTING MONTE CARLO SIMULATION")
     print("=" * 80)
-    print("\nThis will simulate your algorithm on 30 days of historical market data")
-    print("to generate real, quantifiable metrics for your resume.\n")
+    print("\nThis will validate the algorithm on synthetically generated market data.")
+    print("NOTE: These metrics are from a simulation, not live historical API data.\n")
     
     run_full_backtest(days=30)

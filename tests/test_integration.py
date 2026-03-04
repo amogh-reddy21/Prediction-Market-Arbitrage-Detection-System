@@ -3,60 +3,25 @@ Integration test: full pipeline using an in-memory SQLite database.
 
 Mocks both API clients so no network calls are made.
 Runs: match → Bayesian update → opportunity detection → tracker update.
+
+The src.database module is patched to an in-memory SQLite instance by
+conftest.py before this file is imported.
 """
 
+import sys
 import unittest
 from unittest.mock import patch
-from contextlib import contextmanager
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, scoped_session
 
-# ---------------------------------------------------------------------------
-# Patch the database module BEFORE it tries to connect to Postgres.
-# We replace the engine and session with an in-memory SQLite instance.
-# ---------------------------------------------------------------------------
-import sys
-import types
+# conftest.py has already patched src.database — pull the shared helpers from it.
+_db_stub = sys.modules['src.database']
+TEST_ENGINE = _db_stub.engine
+_test_db_session = _db_stub.get_db_session
 
-# Create a stub database module so src.database doesn't try to connect
-_stub = types.ModuleType('src.database')
-TEST_ENGINE = create_engine('sqlite:///:memory:', echo=False)
-TestSessionFactory = sessionmaker(bind=TEST_ENGINE)
-TestSession = scoped_session(TestSessionFactory)
-
-# SQLite doesn't enforce CHECK constraints by default — enable them
-@event.listens_for(TEST_ENGINE, "connect")
-def _enable_sqlite_fk(dbapi_con, _):
-    dbapi_con.execute("PRAGMA foreign_keys=ON")
-
-from sqlalchemy.orm import declarative_base
-Base = declarative_base()
-
-@contextmanager
-def _test_db_session():
-    session = TestSession()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-
-_stub.engine = TEST_ENGINE
-_stub.Session = TestSession
-_stub.get_db_session = _test_db_session
-_stub.Base = Base
-_stub.test_connection = lambda: True
-sys.modules['src.database'] = _stub
-
-# Now safe to import src modules
-from src.models import MatchedContract, Price, Opportunity, BayesianState
+# Safe to import src modules
+from src.models import MatchedContract, Price, Opportunity, BayesianState, Base as ModelsBase
 from src.matcher import ContractMatcher
 from src.bayesian import BayesianEngine
 from src.tracker import OpportunityTracker
-
 
 KALSHI_MARKETS = [
     {
@@ -94,13 +59,13 @@ class TestFullPipeline(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """Create all tables in the in-memory SQLite DB."""
-        Base.metadata.create_all(TEST_ENGINE)
+        """Tables are already created by conftest.py — nothing to do here."""
+        pass
 
     @classmethod
     def tearDownClass(cls):
-        """Drop all tables after tests complete."""
-        Base.metadata.drop_all(TEST_ENGINE)
+        """Leave tables intact for other test modules that share the engine."""
+        pass
 
     def setUp(self):
         """Clear all rows before each test for isolation."""

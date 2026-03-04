@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from datetime import datetime, timezone
 from loguru import logger
+from sqlalchemy.orm import joinedload
 
 from .config import config
 from .database import get_db_session
@@ -42,13 +43,17 @@ def health_check():
 def get_live_opportunities():
     """Get currently open arbitrage opportunities."""
     with get_db_session() as session:
-        open_opps = session.query(Opportunity).filter_by(status='open').order_by(
-            Opportunity.fee_adjusted_spread.desc()
-        ).all()
+        open_opps = (
+            session.query(Opportunity)
+            .options(joinedload(Opportunity.contract))
+            .filter_by(status='open')
+            .order_by(Opportunity.fee_adjusted_spread.desc())
+            .all()
+        )
         
         results = []
         for opp in open_opps:
-            contract = session.query(MatchedContract).get(opp.contract_id)
+            contract = opp.contract
             
             duration_seconds = (datetime.now(timezone.utc) - opp.open_time).total_seconds()
             
@@ -78,15 +83,22 @@ def get_live_opportunities():
 def get_opportunity_history():
     """Get historical closed opportunities."""
     limit = request.args.get('limit', 50, type=int)
+    offset = request.args.get('offset', 0, type=int)
     
     with get_db_session() as session:
-        closed_opps = session.query(Opportunity).filter_by(status='closed').order_by(
-            Opportunity.close_time.desc()
-        ).limit(limit).all()
+        closed_opps = (
+            session.query(Opportunity)
+            .options(joinedload(Opportunity.contract))
+            .filter_by(status='closed')
+            .order_by(Opportunity.close_time.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
         
         results = []
         for opp in closed_opps:
-            contract = session.query(MatchedContract).get(opp.contract_id)
+            contract = opp.contract
             
             if opp.close_time:
                 duration_seconds = (opp.close_time - opp.open_time).total_seconds()
@@ -112,9 +124,12 @@ def get_opportunity_history():
         
         return jsonify({
             'opportunities': results,
-            'count': len(results)
+            'count': len(results),
+            'offset': offset,
+            'limit': limit
         })
 
+@app.route('/api/stats', methods=['GET'])
 @app.route('/api/statistics', methods=['GET'])
 def get_statistics():
     """Get overall system statistics."""

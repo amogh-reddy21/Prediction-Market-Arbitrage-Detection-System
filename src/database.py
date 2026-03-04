@@ -12,7 +12,7 @@ Base = declarative_base()
 
 # Engine
 engine = create_engine(
-    config.MYSQL_URI,
+    config.SQLALCHEMY_URI,
     pool_pre_ping=True,
     pool_recycle=3600,
     echo=config.FLASK_DEBUG

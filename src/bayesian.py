@@ -3,12 +3,12 @@
 import numpy as np
 from scipy.stats import beta
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from loguru import logger
 
 from .config import config
 from .database import get_db_session
-from .models import Price, BayesianState, MatchedContract
+from .models import BayesianState, MatchedContract
 
 class BayesianEngine:
     """Bayesian probability updates using Beta distribution."""
@@ -29,15 +29,23 @@ class BayesianEngine:
         new_probability: float
     ) -> float:
         """
-        Update Bayesian posterior with new observation.
-        
-        Uses conjugate Beta prior for binomial likelihood.
-        
+        Update Bayesian posterior with a new observation using conjugate Beta-Binomial update.
+
+        Instead of recomputing from the raw price window on every tick (O(window) DB
+        reads per call), we store the running (alpha, beta) parameters and apply the
+        conjugate update rule directly:
+
+            alpha_new = alpha_old + p          (fractional pseudo-success)
+            beta_new  = beta_old  + (1 - p)   (fractional pseudo-failure)
+
+        A rolling-window effect is achieved by decaying old parameters toward the
+        uninformative prior once the observation count exceeds the window size.
+
         Args:
             contract_id: MatchedContract ID
             platform: 'kalshi' or 'polymarket'
             new_probability: New probability observation (0.0-1.0)
-            
+
         Returns:
             Smoothed posterior mean probability
         """
@@ -47,9 +55,9 @@ class BayesianEngine:
                 contract_id=contract_id,
                 platform=platform
             ).first()
-            
+
             if not state:
-                # Initialize with uninformative prior: Beta(1, 1) = Uniform(0, 1)
+                # Uninformative prior: Beta(1, 1) = Uniform(0, 1)
                 state = BayesianState(
                     contract_id=contract_id,
                     platform=platform,
@@ -59,61 +67,42 @@ class BayesianEngine:
                     last_updated=datetime.now(timezone.utc)
                 )
                 session.add(state)
-            
-            # Get recent observations from rolling window
-            cutoff_time = datetime.now(timezone.utc) - timedelta(
-                seconds=config.POLL_INTERVAL_SECONDS * self.window_size
-            )
-            
-            recent_prices = session.query(Price).filter(
-                Price.contract_id == contract_id,
-                Price.platform == platform,
-                Price.timestamp >= cutoff_time
-            ).order_by(Price.timestamp.desc()).limit(self.window_size).all()
-            
-            # Recalculate posterior from scratch using all observations in window
-            observations = [float(p.probability) for p in recent_prices] + [new_probability]
-            
-            # Update using method of moments
-            # For Beta distribution: mean = alpha / (alpha + beta)
-            # variance = alpha * beta / ((alpha + beta)^2 * (alpha + beta + 1))
-            
-            obs_array = np.array(observations)
-            mean = np.mean(obs_array)
-            variance = np.var(obs_array)
-            
-            # Prevent division by zero
-            if variance > 0 and mean > 0 and mean < 1:
-                # Method of moments estimation
-                alpha = mean * ((mean * (1 - mean) / variance) - 1)
-                beta_param = (1 - mean) * ((mean * (1 - mean) / variance) - 1)
-                
-                # Ensure parameters are valid
-                alpha = max(alpha, 0.1)
-                beta_param = max(beta_param, 0.1)
-            else:
-                # Fall back to pseudocount approach
-                successes = sum(obs_array)
-                failures = len(obs_array) - successes
-                alpha = 1.0 + successes
-                beta_param = 1.0 + failures
-            
-            # Update state
-            state.alpha = float(alpha)
-            state.beta = float(beta_param)
-            state.observations_count = len(observations)
+
+            alpha = float(state.alpha)
+            beta_param = float(state.beta)
+            n = state.observations_count
+
+            # Rolling-window decay: once we have a full window of observations,
+            # shrink the accumulated parameters proportionally so that the effective
+            # weight stays bounded at window_size rather than growing without limit.
+            if n >= self.window_size:
+                scale = (self.window_size - 1) / self.window_size
+                alpha = alpha * scale
+                beta_param = beta_param * scale
+
+            # Conjugate Beta-Binomial update: treat probability as a fractional count
+            alpha += new_probability
+            beta_param += (1.0 - new_probability)
+
+            # Guard against numerical edge cases
+            alpha = max(alpha, 1e-6)
+            beta_param = max(beta_param, 1e-6)
+
+            # Persist updated state
+            state.alpha = alpha
+            state.beta = beta_param
+            state.observations_count = n + 1
             state.last_updated = datetime.now(timezone.utc)
-            
+
             session.commit()
-            
-            # Posterior mean
+
             posterior_mean = alpha / (alpha + beta_param)
-            
+
             logger.debug(
                 f"Updated posterior for contract {contract_id} ({platform}): "
-                f"α={alpha:.2f}, β={beta_param:.2f}, mean={posterior_mean:.4f}"
+                f"α={alpha:.4f}, β={beta_param:.4f}, mean={posterior_mean:.4f}"
             )
-            
+
             return posterior_mean
     
     def get_smoothed_probability(

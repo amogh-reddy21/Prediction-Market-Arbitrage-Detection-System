@@ -52,11 +52,14 @@ class TestConfiguration(unittest.TestCase):
         self.assertTrue(config.POLYMARKET_GAMMA_URL.startswith('http'))
     
     def test_database_uri_format(self):
-        """Test MySQL URI has correct format."""
+        """Test SQLAlchemy URI has correct format for PostgreSQL."""
         config = Config()
         
-        uri = config.MYSQL_URI
-        self.assertTrue(uri.startswith('mysql+pymysql://'))
+        uri = config.SQLALCHEMY_URI
+        self.assertTrue(
+            uri.startswith('postgresql') or uri.startswith('postgres'),
+            f"Expected PostgreSQL URI, got: {uri[:30]}"
+        )
         self.assertIn('@', uri)
         self.assertIn('/', uri)
     

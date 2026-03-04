@@ -16,13 +16,14 @@ from .bayesian import BayesianEngine
 from .tracker import OpportunityTracker
 from .notifier import EmailNotifier
 
-# Initialize components
-kalshi = KalshiClient(base_url=config.KALSHI_BASE_URL)
-polymarket = PolymarketClient()
-matcher = ContractMatcher()
-bayesian = BayesianEngine()
-tracker = OpportunityTracker()
-notifier = EmailNotifier()
+# Module-level references; populated by main() so that importing this module
+# does not trigger API connections or database access at import time.
+kalshi: KalshiClient = None       # type: ignore[assignment]
+polymarket: PolymarketClient = None  # type: ignore[assignment]
+matcher: ContractMatcher = None    # type: ignore[assignment]
+bayesian: BayesianEngine = None    # type: ignore[assignment]
+tracker: OpportunityTracker = None # type: ignore[assignment]
+notifier: EmailNotifier = None     # type: ignore[assignment]
 
 def update_api_health(platform: str, success: bool, error_msg: str = None):
     """Update API health status in database."""
@@ -205,6 +206,8 @@ def initial_match():
 
 def main():
     """Main entry point."""
+    global kalshi, polymarket, matcher, bayesian, tracker, notifier
+
     # Configure logging
     logger.remove()
     logger.add(
@@ -218,20 +221,28 @@ def main():
         retention="7 days",
         level=config.LOG_LEVEL
     )
-    
+
     logger.info("🚀 Starting Prediction Market Arbitrage System")
-    
+
+    # Initialize all components here — not at module import time
+    kalshi = KalshiClient(base_url=config.KALSHI_BASE_URL)
+    polymarket = PolymarketClient()
+    matcher = ContractMatcher()
+    bayesian = BayesianEngine()
+    tracker = OpportunityTracker()
+    notifier = EmailNotifier()
+
     # Test database connection
     if not test_connection():
         logger.error("Cannot connect to database. Exiting.")
         sys.exit(1)
-    
+
     # Run initial matching
     initial_match()
-    
+
     # Setup scheduler
     scheduler = BlockingScheduler()
-    
+
     # Schedule price collection
     scheduler.add_job(
         collect_prices,
@@ -240,9 +251,9 @@ def main():
         name='Collect prices and detect opportunities',
         replace_existing=True
     )
-    
+
     logger.info(f"Scheduler configured: polling every {config.POLL_INTERVAL_SECONDS}s")
-    
+
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

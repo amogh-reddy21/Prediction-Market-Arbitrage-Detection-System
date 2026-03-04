@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models."""
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, DECIMAL, BigInteger, ForeignKey, Index, CheckConstraint
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Enum, Text, DECIMAL, BigInteger, ForeignKey, Index, CheckConstraint, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -61,6 +61,8 @@ class Price(Base):
     __table_args__ = (
         # Core query pattern: filter by contract + platform + time window
         Index('ix_prices_contract_platform_ts', 'contract_id', 'platform', 'timestamp'),
+        # Prevent duplicate rows if the scheduler retries a failed write
+        UniqueConstraint('contract_id', 'platform', 'timestamp', name='uq_prices_contract_platform_ts'),
         # Probability must be a valid probability value
         CheckConstraint('probability >= 0 AND probability <= 1', name='ck_prices_probability'),
     )

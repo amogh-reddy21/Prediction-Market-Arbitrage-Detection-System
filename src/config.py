@@ -30,10 +30,10 @@ class Config:
     )
 
     @property
-    def MYSQL_URI(self):
-        """SQLAlchemy connection string (kept for backward compat — points to Postgres now)."""
+    def SQLALCHEMY_URI(self) -> str:
+        """SQLAlchemy connection string for PostgreSQL."""
         url = self.DATABASE_URL
-        # Heroku/Railway sometimes provide postgres:// instead of postgresql://
+        # Heroku/Railway/Render sometimes provide postgres:// instead of postgresql://
         if url.startswith('postgres://'):
             url = url.replace('postgres://', 'postgresql+psycopg2://', 1)
         return url

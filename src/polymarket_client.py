@@ -5,8 +5,30 @@ from typing import List, Dict, Optional
 from datetime import datetime, timezone
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
+from pydantic import BaseModel, Field, field_validator
 
 from .config import config
+
+
+class PolymarketMarket(BaseModel):
+    """Validated schema for a normalized Polymarket market."""
+    platform: str = 'polymarket'
+    id: str
+    market_id: str
+    question: str
+    title: str
+    category: str = 'unknown'
+    yes_bid: float = Field(ge=0.0, le=1.0)
+    yes_ask: float = Field(ge=0.0, le=1.0)
+    probability: float = Field(ge=0.0, le=1.0)
+    volume_24h: float = Field(default=0.0, ge=0.0)
+    close_time: Optional[str] = None
+
+    @field_validator('probability', 'yes_bid', 'yes_ask', mode='before')
+    @classmethod
+    def clamp_probability(cls, v: float) -> float:
+        """Clamp to [0, 1] to handle minor API rounding errors."""
+        return max(0.0, min(1.0, float(v)))
 
 class PolymarketClient:
     """Wrapper for Polymarket CLOB and Gamma APIs."""
@@ -94,21 +116,27 @@ class PolymarketClient:
                     
                     # Calculate probability (use best available data)
                     probability = yes_price if yes_price > 0 else (1.0 - no_price)
-                    
-                    normalized.append({
-                        'platform': 'polymarket',
-                        'id': market.get('conditionId', ''),  # Use 'id' for consistency with Kalshi
-                        'market_id': market.get('conditionId', ''),  # Keep for backward compat
-                        'question': market.get('question', ''),
-                        'title': market.get('question', ''),  # For matcher compatibility
-                        'category': market.get('category', 'unknown'),
-                        'yes_bid': yes_price * 0.99,  # Approximate bid/ask spread
-                        'yes_ask': yes_price * 1.01,
-                        'probability': probability,
-                        'volume_24h': market.get('volume24hr', 0),
-                        'close_time': market.get('endDate'),
-                        'timestamp': datetime.now(timezone.utc)
-                    })
+                    condition_id = market.get('conditionId', '')
+
+                    try:
+                        validated = PolymarketMarket(
+                            id=condition_id,
+                            market_id=condition_id,
+                            question=market.get('question', ''),
+                            title=market.get('question', ''),
+                            category=market.get('category', 'unknown'),
+                            yes_bid=yes_price * 0.99,   # Approximate bid/ask spread
+                            yes_ask=min(yes_price * 1.01, 1.0),
+                            probability=probability,
+                            volume_24h=market.get('volume24hr', 0),
+                            close_time=market.get('endDate'),
+                        )
+                        market_dict = validated.model_dump()
+                        market_dict['timestamp'] = datetime.now(timezone.utc)
+                        normalized.append(market_dict)
+                    except Exception as e:
+                        logger.warning(f"Skipping invalid Polymarket market {condition_id or '?'}: {e}")
+                        continue
                 
                 logger.info(f"✓ Fetched {len(normalized)} Polymarket markets")
                 return normalized
