@@ -51,24 +51,52 @@ Monitors pricing discrepancies on identical events across Kalshi and Polymarket.
 
 ## Setup
 
-### Prerequisites
-- Python 3.12+
-- PostgreSQL
-- Node.js 18+
+## Setup & Deployment
 
-### Installation
+### Option A — Docker Compose (recommended, runs everything locally)
+
 ```bash
-# Clone and install dependencies
+cp .env.example .env          # fill in secrets
+docker compose up --build     # postgres + api + worker + frontend
+```
+
+- Frontend → http://localhost
+- API      → http://localhost:5000/api/health
+
+### Option B — Render (free tier, one-click)
+
+1. Push the repo to GitHub.
+2. In the Render dashboard → **New → Blueprint** → connect the repo.  
+   Render reads `render.yaml` and provisions the DB, API web service, and background worker automatically.
+3. Set the secret env vars (`KALSHI_API_KEY`, `KALSHI_EMAIL`, `KALSHI_PASSWORD`) in the Render dashboard.
+
+### Option C — Railway
+
+```bash
+npm install -g @railway/cli
+railway login
+railway up            # deploys via railway.json / Dockerfile
+```
+Add a PostgreSQL plugin in the Railway dashboard and set `DATABASE_URL`.
+
+### Option D — Manual / local dev
+
+**Prerequisites:** Python 3.12+, PostgreSQL, Node.js 18+
+
+```bash
+# Backend
 pip install -r requirements.txt
+cp .env.example .env           # fill in DATABASE_URL and API keys
 
-# Copy and fill in environment variables
-cp .env.example .env
+python -m src.scheduler        # data-collection worker
+gunicorn "src.app:app" --config gunicorn.conf.py  # production API
 
-# Create database tables
-python -c "from src.database import Base, engine; Base.metadata.create_all(engine)"
+# Frontend (dev server with proxy to Flask)
+cd frontend && npm install && npm start
 
-# Install frontend dependencies
-cd frontend && npm install
+# Frontend (production build served by Flask)
+cd frontend && npm run build   # output → frontend/build/
+# Flask automatically serves frontend/build/ when it exists
 ```
 
 ### Environment Variables
@@ -76,22 +104,9 @@ See `.env.example` for all required variables. Key ones:
 ```
 DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/arbitrage_db
 KALSHI_API_KEY=your_key_here
-POLYMARKET_API_KEY=your_key_here
-```
-
-### Run
-```bash
-# Start data collector
-python -m src.scheduler
-
-# Start API server (dev)
-python -m src.app
-
-# Start API server (production)
-gunicorn "src.app:app"
-
-# Start frontend
-cd frontend && npm start
+KALSHI_EMAIL=your_email_here
+KALSHI_PASSWORD=your_password_here
+POLYMARKET_API_KEY=your_key_here   # optional
 ```
 
 ## Project Structure

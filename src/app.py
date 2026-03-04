@@ -1,6 +1,8 @@
 """Flask REST API for arbitrage dashboard."""
 
-from flask import Flask, jsonify, request
+import os
+from pathlib import Path
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from datetime import datetime, timezone
 from loguru import logger
@@ -12,8 +14,15 @@ from .models import Opportunity, MatchedContract, Price, APIHealth
 from .matcher import ContractMatcher
 from .tracker import OpportunityTracker
 
-app = Flask(__name__)
-CORS(app)
+# Resolve the React production build directory (sibling of this package)
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+app = Flask(
+    __name__,
+    static_folder=str(_FRONTEND_BUILD) if _FRONTEND_BUILD.exists() else None,
+    static_url_path="",
+)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialize components
 matcher = ContractMatcher()
@@ -255,6 +264,21 @@ def main():
         port=config.FLASK_PORT,
         debug=config.FLASK_DEBUG
     )
+
+
+# ── Static frontend (production) ──────────────────────────────────────────────
+# Only register the catch-all when the React build directory actually exists,
+# so local API-only development still works without running `npm run build`.
+if _FRONTEND_BUILD.exists():
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def serve_react(path: str):
+        """Serve React SPA; fall back to index.html for client-side routes."""
+        target = _FRONTEND_BUILD / path
+        if path and target.exists():
+            return send_from_directory(str(_FRONTEND_BUILD), path)
+        return send_from_directory(str(_FRONTEND_BUILD), "index.html")
+
 
 if __name__ == '__main__':
     main()
