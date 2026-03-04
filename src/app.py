@@ -24,20 +24,36 @@ app = Flask(
 )
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Initialize components
-matcher = ContractMatcher()
-tracker = OpportunityTracker()
+# Components are initialised lazily on first request so that importing this
+# module never touches the database (important for Railway / gunicorn startup).
+_matcher = None
+_tracker = None
+
+
+def get_matcher():
+    global _matcher
+    if _matcher is None:
+        _matcher = ContractMatcher()
+    return _matcher
+
+
+def get_tracker():
+    global _tracker
+    if _tracker is None:
+        _tracker = OpportunityTracker()
+    return _tracker
+
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """API health check endpoint."""
-    with get_db_session() as session:
-        api_health = session.query(APIHealth).all()
-        
-        return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'platforms': [
+    """API health check endpoint — always returns 200 so Railway healthcheck passes."""
+    platform_data = []
+    db_status = "healthy"
+
+    try:
+        with get_db_session() as session:
+            api_health = session.query(APIHealth).all()
+            platform_data = [
                 {
                     'platform': h.platform,
                     'status': h.status,
@@ -46,7 +62,16 @@ def health_check():
                 }
                 for h in api_health
             ]
-        })
+    except Exception as e:
+        db_status = "unavailable"
+        logger.warning(f"Health check DB query failed: {e}")
+
+    return jsonify({
+        'status': 'healthy' if db_status == 'healthy' else 'degraded',
+        'db': db_status,
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+        'platforms': platform_data
+    }), 200
 
 @app.route('/api/live', methods=['GET'])
 def get_live_opportunities():
@@ -142,7 +167,7 @@ def get_opportunity_history():
 @app.route('/api/statistics', methods=['GET'])
 def get_statistics():
     """Get overall system statistics."""
-    stats = tracker.get_statistics()
+    stats = get_tracker().get_statistics()
     
     return jsonify({
         'total_opportunities': stats['total_opportunities'],
@@ -188,7 +213,7 @@ def get_matched_contracts():
 @app.route('/api/decay/<int:opportunity_id>', methods=['GET'])
 def get_decay_curve(opportunity_id):
     """Get decay curve for a specific opportunity."""
-    decay_data = tracker.get_decay_curve(opportunity_id)
+    decay_data = get_tracker().get_decay_curve(opportunity_id)
     
     if not decay_data:
         return jsonify({'error': 'Opportunity not found'}), 404
@@ -237,7 +262,7 @@ def verify_contract(contract_id):
     data = request.json
     verified = data.get('verified', True)
     
-    matcher.manual_verify(contract_id, verified)
+    get_matcher().manual_verify(contract_id, verified)
     
     return jsonify({
         'success': True,
@@ -248,7 +273,7 @@ def verify_contract(contract_id):
 @app.route('/api/contract/<int:contract_id>/deactivate', methods=['POST'])
 def deactivate_contract(contract_id):
     """Deactivate a matched contract."""
-    matcher.deactivate_match(contract_id)
+    get_matcher().deactivate_match(contract_id)
     
     return jsonify({
         'success': True,

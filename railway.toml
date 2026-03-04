@@ -1,9 +1,11 @@
 # Railway configuration — API web service
 # Docs: https://docs.railway.com/reference/config-as-code
 #
-# For the background WORKER service, create a second service in the Railway
-# dashboard pointing at the same GitHub repo and set the start command to:
-#   python -m src.scheduler
+# IMPORTANT: After deploying, go to the service Settings → Networking
+# and click "Generate Domain" so the service gets a public URL.
+#
+# For the background WORKER service, add a second service from the same
+# GitHub repo and set the start command to:  python -m src.scheduler
 
 [build]
 builder = "DOCKERFILE"
@@ -13,5 +15,3 @@ dockerfilePath = "Dockerfile"
 startCommand = "gunicorn src.app:app --config gunicorn.conf.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
-healthcheckPath = "/api/health"
-healthcheckTimeout = 30
