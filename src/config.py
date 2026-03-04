@@ -21,28 +21,30 @@ class Config:
     POLYMARKET_BASE_URL = 'https://clob.polymarket.com'
     POLYMARKET_GAMMA_URL = 'https://gamma-api.polymarket.com'
     
-    # PostgreSQL Database
-    # On cloud platforms (Heroku, Railway, Render), set DATABASE_URL directly.
-    # Locally, set individual vars or DATABASE_URL=postgresql://user:pass@localhost:5432/arbitrage_db
-    DATABASE_URL = os.getenv(
-        'DATABASE_URL',
-        f"postgresql+psycopg2://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME', 'arbitrage_db')}"
-    )
-
     @property
-    def SQLALCHEMY_URI(self) -> str:
-        """SQLAlchemy connection string for PostgreSQL."""
-        url = self.DATABASE_URL
-        # Heroku/Railway/Render sometimes provide postgres:// instead of postgresql://
+    def DATABASE_URL(self) -> str:
+        """Build database URL at access time so Railway env vars are resolved."""
+        url = os.getenv('DATABASE_URL') or (
+            f"postgresql+psycopg2://"
+            f"{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', '')}"
+            f"@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}"
+            f"/{os.getenv('DB_NAME', 'arbitrage_db')}"
+        )
+        # Railway / Heroku / Render sometimes provide postgres:// instead of postgresql://
         if url.startswith('postgres://'):
             url = url.replace('postgres://', 'postgresql+psycopg2://', 1)
         return url
+
+    @property
+    def SQLALCHEMY_URI(self) -> str:
+        """SQLAlchemy connection string (alias kept for compatibility)."""
+        return self.DATABASE_URL
     
     # Application Settings
     POLL_INTERVAL_SECONDS = int(os.getenv('POLL_INTERVAL_SECONDS', 60))
     FEE_KALSHI = float(os.getenv('FEE_KALSHI', 0.07))
     FEE_POLYMARKET = float(os.getenv('FEE_POLYMARKET', 0.02))
-    MIN_SPREAD_THRESHOLD = float(os.getenv('MIN_SPREAD_THRESHOLD', 0.015))  # Lowered from 0.05 to 0.015 (1.5%) for more practical opportunities
+    MIN_SPREAD_THRESHOLD = float(os.getenv('MIN_SPREAD_THRESHOLD', 0.015))
     FUZZY_MATCH_THRESHOLD = float(os.getenv('FUZZY_MATCH_THRESHOLD', 85.0))
     BAYESIAN_WINDOW_SIZE = int(os.getenv('BAYESIAN_WINDOW_SIZE', 10))
     POLYMARKET_ACTIVE_ONLY = os.getenv('POLYMARKET_ACTIVE_ONLY', 'True').lower() == 'true'

@@ -1,7 +1,11 @@
 """Gunicorn configuration file."""
 import os
+import sys
 
-# Server socket
+# Ensure the project root is on sys.path so `from src.xxx import` works
+sys.path.insert(0, os.path.dirname(__file__))
+
+# Server socket – Railway injects $PORT at runtime
 bind = f"0.0.0.0:{os.getenv('PORT', '5000')}"
 
 # Worker processes
@@ -18,7 +22,8 @@ loglevel = os.getenv("LOG_LEVEL", "info").lower()
 # Process naming
 proc_name = "arbitrage-api"
 
-# Lifecycle hooks – initialize the DB schema on first boot
+
 def on_starting(server):
+    """Initialise DB tables before the first worker starts."""
     from src.database import init_db
     init_db()
