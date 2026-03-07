@@ -197,8 +197,8 @@ def initial_match():
     logger.info("Running initial contract matching...")
     
     try:
-        kalshi_markets = kalshi.get_markets(limit=500)
-        polymarket_markets = polymarket.get_markets(limit=500, active=config.POLYMARKET_ACTIVE_ONLY)
+        kalshi_markets = kalshi.get_markets(limit=200)
+        polymarket_markets = polymarket.get_markets(limit=200, active=config.POLYMARKET_ACTIVE_ONLY)
         
         matches = matcher.find_matches(kalshi_markets, polymarket_markets)
         

@@ -41,16 +41,30 @@ class Config:
     # ── Database ──────────────────────────────────────────────────────────────
     @property
     def DATABASE_URL(self) -> str:
-        url = os.getenv('DATABASE_URL') or (
+        # 1. Explicit DATABASE_URL env var takes priority (Railway / Render).
+        url = os.getenv('DATABASE_URL')
+        if url:
+            if url.startswith('postgres://'):
+                url = url.replace('postgres://', 'postgresql+psycopg2://', 1)
+            return url
+
+        # 2. MySQL env vars (local dev).
+        mysql_host = os.getenv('MYSQL_HOST')
+        if mysql_host:
+            user     = os.getenv('MYSQL_USER', 'root')
+            password = os.getenv('MYSQL_PASSWORD', '')
+            host     = mysql_host
+            port     = os.getenv('MYSQL_PORT', '3306')
+            db       = os.getenv('MYSQL_DATABASE', 'arbitrage_db')
+            return f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}"
+
+        # 3. Generic Postgres fallback (legacy DB_* vars).
+        return (
             f"postgresql+psycopg2://"
             f"{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', '')}"
             f"@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}"
             f"/{os.getenv('DB_NAME', 'arbitrage_db')}"
         )
-        # Heroku / Railway / Render sometimes provide postgres:// scheme
-        if url.startswith('postgres://'):
-            url = url.replace('postgres://', 'postgresql+psycopg2://', 1)
-        return url
 
     @property
     def SQLALCHEMY_URI(self) -> str:
